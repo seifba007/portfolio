@@ -553,18 +553,6 @@ a.info-card:hover {
   display: inline-block;
 }
 
-.role-rotator {
-  display: inline-flex;
-  min-height: 1.35em;
-  overflow: hidden;
-  vertical-align: bottom;
-  padding-bottom: 0.1em;
-}
-
-.role-text {
-  display: inline-block;
-}
-
 .magnetic {
   display: inline-flex;
 }
@@ -613,9 +601,6 @@ a.info-card:hover {
 
 /* ---------- Responsive ---------- */
 @media (max-width: 1200px) {
-  .hero-section {
-    padding: 7rem 2rem 2rem;
-  }
   .site-header,
   .site-header.is-scrolled {
     padding-left: 2rem;
@@ -644,9 +629,6 @@ a.info-card:hover {
 }
 
 @media (max-width: 768px) {
-  .hero-section {
-    padding: 6.5rem 1rem 2rem;
-  }
   .site-header,
   .site-header.is-scrolled {
     padding-left: 1rem;

@@ -14,6 +14,8 @@ export const PROFILE = {
   github: 'seifbenaicha',
   githubUrl: 'https://github.com/seifbenaicha',
   cvUrl: '/seif-ben-aicha-cv.pdf',
+  // Short tech list shown under the hero buttons.
+  stack: ['React', 'Next.js', 'Node.js', 'MongoDB', 'Docker', 'Kubernetes'],
   summary: [
     "Étudiant en deuxième année de Master en Cloud Computing et Développement des applications distribuées, avec une expertise dans la réalisation de projets académiques et professionnels et une capacité avérée à maîtriser rapidement de nouveaux outils pour développer des solutions efficaces et évolutives.",
     "Développeur web full-stack très motivé, avec 2 ans d'expérience spécialisée dans les frameworks JavaScript. Expert dans la création d'applications web réactives et conviviales, avec une forte attention à la performance et à l'évolutivité. J'ai appliqué avec succès mes compétences auto-apprises en React, MongoDB et SQL pour développer des applications bien structurées et efficaces.",

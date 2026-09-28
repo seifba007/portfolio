@@ -22,15 +22,16 @@ const show = (extra = {}) => ({
   y: 0,
   scale: 1,
   rotateX: 0,
-  filter: 'blur(0px)',
   transition: { duration: 0.9, ease: EASE, ...extra },
 });
 
 export const VARIANTS = {
-  up: { hidden: { opacity: 0, y: 40, filter: 'blur(6px)' }, show: show() },
-  left: { hidden: { opacity: 0, x: -70, filter: 'blur(6px)' }, show: show() },
-  right: { hidden: { opacity: 0, x: 70, filter: 'blur(6px)' }, show: show() },
-  scale: { hidden: { opacity: 0, scale: 0.9, y: 60, filter: 'blur(8px)' }, show: show({ duration: 1 }) },
+  // Only opacity and transforms: these run on the compositor, while animating
+  // `filter: blur()` repaints the element on every frame.
+  up: { hidden: { opacity: 0, y: 40 }, show: show() },
+  left: { hidden: { opacity: 0, x: -70 }, show: show() },
+  right: { hidden: { opacity: 0, x: 70 }, show: show() },
+  scale: { hidden: { opacity: 0, scale: 0.9, y: 60 }, show: show({ duration: 1 }) },
   flip: {
     hidden: { opacity: 0, rotateX: -40, y: 50, transformPerspective: 1000 },
     show: show({ duration: 1 }),
@@ -263,9 +264,12 @@ export function VelocityRow({ items, baseVelocity = 3, className }) {
   const skewX = useTransform(smoothVelocity, [-3000, 3000], [3, -3], { clamp: true });
   const x = useTransform(baseX, (v) => `${wrap(-50, 0, v)}%`);
   const direction = useRef(1);
+  const ref = useRef(null);
+  // No work while the row is off screen.
+  const visible = useInView(ref, { margin: '200px 0px' });
 
   useAnimationFrame((_, delta) => {
-    if (reduce) return;
+    if (reduce || !visible) return;
     const vf = velocityFactor.get();
     // Ease toward the new direction instead of flipping instantly.
     const targetDirection = vf < -0.02 ? -1 : vf > 0.02 ? 1 : direction.current >= 0 ? 1 : -1;
@@ -285,7 +289,7 @@ export function VelocityRow({ items, baseVelocity = 3, className }) {
   );
 
   return (
-    <motion.div className={`marquee-row ${className ?? ''}`} style={{ x, skewX }}>
+    <motion.div ref={ref} className={`marquee-row ${className ?? ''}`} style={{ x, skewX }}>
       {copy(0)}
       {copy(1)}
     </motion.div>

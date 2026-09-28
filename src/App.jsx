@@ -1,8 +1,9 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import {
   AnimatePresence,
   MotionConfig,
   motion,
+  useMotionValue,
   useScroll,
   useSpring,
   useTransform,
@@ -24,6 +25,7 @@ import {
   StaggerItem,
   TagList,
   TiltCard,
+  VARIANTS,
   VelocityRow,
 } from './components/Motion.jsx';
 import {
@@ -37,8 +39,22 @@ import {
   STATS,
 } from './data/cv.js';
 
-// Three.js is heavy: load it after the page content so text renders first.
-const Scene = lazy(() => import('./components/Scene.jsx'));
+// Three.js is heavy: start downloading it right away, but only mount it once the
+// intro animation has had the main thread, so the first seconds stay smooth.
+const loadScene = () => import('./components/Scene.jsx');
+const Scene = lazy(loadScene);
+loadScene();
+
+function useIdleReady(timeout) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((cb) => setTimeout(cb, timeout));
+    const cancel = window.cancelIdleCallback ?? clearTimeout;
+    const id = idle(() => setReady(true), { timeout });
+    return () => cancel(id);
+  }, [timeout]);
+  return ready;
+}
 
 const NAV_LINKS = [
   { id: 'about', label: 'À propos' },
@@ -56,11 +72,11 @@ const SOCIALS = [
 ];
 
 // Timing of the hero's load sequence (seconds).
-const INTRO = { nav: 0.1, greeting: 0.3, name: 0.45, role: 0.95, tagline: 1.1, cta: 1.2, footer: 1.35 };
+const INTRO = { nav: 0.1, badge: 0.2, greeting: 0.35, name: 0.5, role: 1.0, tagline: 1.15, cta: 1.25, stack: 1.4, footer: 1.45 };
 
 const fadeUpOnLoad = (delay) => ({
-  initial: { opacity: 0, y: 30, filter: 'blur(6px)' },
-  animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
+  initial: { opacity: 0, y: 30 },
+  animate: { opacity: 1, y: 0 },
   transition: { duration: 1, ease: EASE, delay },
 });
 
@@ -153,15 +169,26 @@ function Navbar() {
       <header className={`site-header ${scrolled ? 'is-scrolled' : ''}`}>
         <nav className="navbar">
           <motion.div {...fadeUpOnLoad(INTRO.nav)}>
-            <NavLink id="home" className="logo">
-              <motion.i
-                className="ph ph-cube-transparent"
-                initial={{ rotate: -180, scale: 0 }}
+            <NavLink id="home" className="logo" aria-label={`${PROFILE.firstName} ${PROFILE.lastName}, accueil`}>
+              <motion.span
+                className="logo-mark"
+                aria-hidden="true"
+                initial={{ rotate: -90, scale: 0 }}
                 animate={{ rotate: 0, scale: 1 }}
-                transition={{ type: 'spring', stiffness: 160, damping: 14, delay: INTRO.nav }}
-              />
-              <span>
-                SEIF<span className="logo-dot">.</span>
+                transition={{ type: 'spring', stiffness: 180, damping: 14, delay: INTRO.nav }}
+              >
+                <svg viewBox="0 0 40 40">
+                  <text x="20" y="26.5" textAnchor="middle">
+                    SB
+                  </text>
+                </svg>
+              </motion.span>
+              <span className="logo-text" aria-hidden="true">
+                <span className="logo-name">
+                  {PROFILE.firstName} {PROFILE.lastName}
+                  <span className="logo-dot">.</span>
+                </span>
+                <span className="logo-role">Full-Stack Developer</span>
               </span>
             </NavLink>
           </motion.div>
@@ -230,30 +257,57 @@ function Navbar() {
   );
 }
 
+const ROLE_CHAR = {
+  hidden: { opacity: 0, y: '0.5em' },
+  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
+  exit: { opacity: 0, y: '-0.5em', transition: { duration: 0.25, ease: EASE } },
+};
+
 function RotatingRole() {
   const [index, setIndex] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setIndex((i) => (i + 1) % PROFILE.roles.length), 3000);
+    const id = setInterval(() => setIndex((i) => (i + 1) % PROFILE.roles.length), 3400);
     return () => clearInterval(id);
   }, []);
+  const role = PROFILE.roles[index];
 
+  // Letters swap one by one; words stay unbroken so the line wraps cleanly.
   return (
     <span className="role-rotator" aria-live="polite">
-      <AnimatePresence mode="wait">
+      <AnimatePresence mode="wait" initial={false}>
         <motion.span
           key={index}
-          className="role-text accent-text-gradient"
-          initial={{ y: '100%', opacity: 0, filter: 'blur(6px)' }}
-          animate={{ y: '0%', opacity: 1, filter: 'blur(0px)' }}
-          exit={{ y: '-100%', opacity: 0, filter: 'blur(6px)' }}
-          transition={{ duration: 0.45, ease: EASE }}
+          className="role-text"
+          aria-label={role}
+          initial="hidden"
+          animate="show"
+          exit="exit"
+          variants={{
+            show: { transition: { staggerChildren: 0.018 } },
+            exit: { transition: { staggerChildren: 0.008, staggerDirection: -1 } },
+          }}
         >
-          {PROFILE.roles[index]}
+          {role.split(' ').map((word, wi, words) => (
+            <Fragment key={wi}>
+              <span className="role-word" aria-hidden="true">
+                {[...word].map((ch, ci) => (
+                  <motion.span key={ci} className="role-char" variants={ROLE_CHAR}>
+                    {ch}
+                  </motion.span>
+                ))}
+              </span>
+              {wi < words.length - 1 && ' '}
+            </Fragment>
+          ))}
         </motion.span>
       </AnimatePresence>
+      <span className="role-caret" />
     </span>
   );
 }
+
+const POINTER_SPRING = { stiffness: 50, damping: 18, mass: 0.8 };
+const SPOT_SPRING = { stiffness: 120, damping: 24 };
 
 function Hero() {
   const ref = useRef(null);
@@ -261,101 +315,168 @@ function Hero() {
   const y = useTransform(scrollYProgress, [0, 1], [0, 220]);
   const opacity = useTransform(scrollYProgress, [0, 0.8], [1, 0]);
   const scale = useTransform(scrollYProgress, [0, 1], [1, 0.94]);
+  const backdropOpacity = useTransform(scrollYProgress, [0, 0.7], [1, 0]);
+
+  // Pointer position in the hero, from -0.5 to 0.5 on each axis. The text drifts
+  // slightly against it for depth, and a soft light follows it more closely.
+  const px = useMotionValue(0);
+  const py = useMotionValue(0);
+  const parallaxX = useTransform(useSpring(px, POINTER_SPRING), (v) => v * -18);
+  const parallaxY = useTransform(useSpring(py, POINTER_SPRING), (v) => v * -12);
+  // The light is positioned in pixels; hero size is read on pointer move, not per frame.
+  const size = useRef({ w: 0, h: 0 });
+  const spotX = useTransform(useSpring(px, SPOT_SPRING), (v) => (v + 0.5) * size.current.w);
+  const spotY = useTransform(useSpring(py, SPOT_SPRING), (v) => (v + 0.5) * size.current.h);
+  const spotOpacity = useSpring(0, { stiffness: 60, damping: 20 });
+
+  const onPointerMove = (e) => {
+    if (e.pointerType !== 'mouse') return;
+    const r = ref.current.getBoundingClientRect();
+    size.current = { w: r.width, h: r.height };
+    spotOpacity.set(1);
+    px.set((e.clientX - r.left) / r.width - 0.5);
+    py.set((e.clientY - r.top) / r.height - 0.5);
+  };
 
   return (
-    <section id="home" ref={ref} className="hero-section">
+    <section id="home" ref={ref} className="hero-section" onPointerMove={onPointerMove} onPointerLeave={() => spotOpacity.set(0)}>
+      <motion.div className="hero-backdrop" aria-hidden="true" style={{ opacity: backdropOpacity }}>
+        <motion.div className="hero-grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 2, delay: 0.2 }} />
+        <div className="hero-aurora" />
+        <motion.div className="hero-spotlight" style={{ x: spotX, y: spotY, opacity: spotOpacity }} />
+      </motion.div>
+
       <motion.div className="hero-content" style={{ y, opacity, scale }}>
-        <div className="text-wrapper">
-          <SplitText as="p" className="greeting" text="BONJOUR, JE SUIS" by="char" step={0.025} delay={INTRO.greeting} onMount />
+        <motion.div className="hero-parallax" style={{ x: parallaxX, y: parallaxY }}>
+          <motion.div {...fadeUpOnLoad(INTRO.badge)}>
+            <NavLink id="contact" className="hero-badge">
+              <span className="pulse-dot" />
+              <span className="hero-badge-label">Disponible</span>
+              <span className="hero-badge-sep" />
+              <span className="hero-badge-text">Freelance &amp; temps plein</span>
+              <i className="ph ph-arrow-up-right" />
+            </NavLink>
+          </motion.div>
+
+          <div className="hero-eyebrow">
+            <motion.span
+              className="eyebrow-line"
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ duration: 1, ease: EASE, delay: INTRO.greeting }}
+            />
+            <SplitText text="Bonjour, je suis" by="char" step={0.025} delay={INTRO.greeting + 0.1} onMount />
+          </div>
+
           <h1 className="main-title">
-            <SplitText className="split-line" text={PROFILE.firstName} by="char" delay={INTRO.name} onMount />
-            <SplitText className="split-line" text={PROFILE.lastName} by="char" delay={INTRO.name + 0.15} onMount />
+            <SplitText className="split-line" itemClassName="title-char" text={PROFILE.firstName} by="char" delay={INTRO.name} onMount />
+            <span className="split-line">
+              <SplitText
+                itemClassName="title-char title-char--accent"
+                text={PROFILE.lastName}
+                by="char"
+                delay={INTRO.name + 0.15}
+                onMount
+              />
+              <motion.span
+                className="title-dot"
+                aria-hidden="true"
+                initial={{ opacity: 0, scale: 0, y: -40 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 380, damping: 14, delay: INTRO.name + 0.75 }}
+              >
+                .
+              </motion.span>
+            </span>
           </h1>
+
           <motion.h2 className="sub-title" {...fadeUpOnLoad(INTRO.role)}>
             <RotatingRole />
           </motion.h2>
-          <motion.p className="hero-tagline" {...fadeUpOnLoad(INTRO.tagline)}>
-            {PROFILE.tagline} · <i className="ph ph-map-pin" /> {PROFILE.location}
-          </motion.p>
+
+          <motion.ul className="hero-meta" {...fadeUpOnLoad(INTRO.tagline)}>
+            <li>
+              <i className="ph ph-graduation-cap" /> {PROFILE.tagline}
+            </li>
+            <li>
+              <i className="ph ph-map-pin" /> {PROFILE.location}
+            </li>
+          </motion.ul>
+
           <motion.div className="cta-group" {...fadeUpOnLoad(INTRO.cta)}>
-            <Magnetic>
-              <NavLink id="projects" className="btn btn-primary btn-shine">
-                Voir mes projets <i className="ph ph-arrow-right" />
+            <Magnetic strength={0.25}>
+              <NavLink id="projects" className="btn btn-primary btn-shine btn-cta">
+                Voir mes projets
+                <span className="btn-icon" aria-hidden="true">
+                  <i className="ph ph-arrow-right" />
+                  <i className="ph ph-arrow-right" />
+                </span>
               </NavLink>
             </Magnetic>
-            <Magnetic>
-              <a href={PROFILE.cvUrl} download className="btn btn-outline">
+            <Magnetic strength={0.25}>
+              <a href={PROFILE.cvUrl} download className="btn btn-outline btn-ghost">
                 Télécharger le CV <i className="ph ph-download-simple" />
               </a>
             </Magnetic>
           </motion.div>
-        </div>
+
+          <motion.div
+            className="hero-stack"
+            initial="hidden"
+            animate="show"
+            variants={{ show: { transition: { staggerChildren: 0.05, delayChildren: INTRO.stack } } }}
+          >
+            <motion.span className="hero-stack-label" variants={VARIANTS.up}>
+              Stack
+            </motion.span>
+            {PROFILE.stack.map((tech) => (
+              <motion.span key={tech} className="hero-stack-chip" variants={VARIANTS.pop}>
+                {tech}
+              </motion.span>
+            ))}
+          </motion.div>
+        </motion.div>
       </motion.div>
 
       <footer className="hero-footer">
-        <div className="footer-left">
-          <motion.div className="glass-panel availability" {...fadeUpOnLoad(INTRO.footer)}>
-            <div className="status">
-              <span className="pulse-dot" />
-              <span className="status-label">Disponible</span>
-            </div>
-            <p>Ouvert aux missions freelance et aux opportunités à temps plein.</p>
-          </motion.div>
-
-          <motion.div
-            className="social-links"
-            initial="hidden"
-            animate="show"
-            variants={{ show: { transition: { staggerChildren: 0.08, delayChildren: INTRO.footer + 0.2 } } }}
-          >
-            {SOCIALS.map((s) => (
-              <motion.a
-                key={s.label}
-                href={s.href}
-                aria-label={s.label}
-                target={s.label === 'GitHub' ? '_blank' : undefined}
-                rel="noreferrer"
-                variants={{
-                  hidden: { opacity: 0, scale: 0 },
-                  show: { opacity: 1, scale: 1, transition: { type: 'spring', stiffness: 300, damping: 18 } },
-                }}
-              >
-                <i className={`ph ${s.icon}`} />
-              </motion.a>
-            ))}
-          </motion.div>
-        </div>
-
-        <motion.div className="scroll-indicator" {...fadeUpOnLoad(INTRO.footer + 0.2)}>
-          <div className="mouse">
-            <span className="wheel" />
-          </div>
-          <span>Scroll</span>
-        </motion.div>
-
         <motion.div
-          className="stats-group"
+          className="social-links"
           initial="hidden"
           animate="show"
-          variants={{ show: { transition: { staggerChildren: 0.12, delayChildren: INTRO.footer + 0.1 } } }}
+          variants={{ show: { transition: { staggerChildren: 0.08, delayChildren: INTRO.footer } } }}
         >
-          {STATS.map((stat, i) => (
-            <motion.div
-              key={stat.label}
-              className="stat-wrap"
-              variants={{
-                hidden: { opacity: 0, y: 30 },
-                show: { opacity: 1, y: 0, transition: { duration: 0.9, ease: EASE } },
-              }}
-            >
-              {i > 0 && <span className="stat-line" />}
-              <div className="stat">
-                <span className="stat-value">
-                  <CountUp value={stat.value} suffix={stat.suffix} />
-                </span>
-                <span className="stat-label">{stat.label}</span>
-              </div>
+          {SOCIALS.map((s) => (
+            <motion.div key={s.label} variants={VARIANTS.pop}>
+              <Magnetic strength={0.4}>
+                <a
+                  href={s.href}
+                  aria-label={s.label}
+                  title={s.label}
+                  target={s.label === 'GitHub' ? '_blank' : undefined}
+                  rel="noreferrer"
+                >
+                  <i className={`ph ${s.icon}`} />
+                </a>
+              </Magnetic>
             </motion.div>
+          ))}
+        </motion.div>
+
+        <motion.button type="button" className="scroll-cue" onClick={() => scrollToId('about')} {...fadeUpOnLoad(INTRO.footer + 0.2)}>
+          <span className="scroll-cue-track">
+            <span className="scroll-cue-thumb" />
+          </span>
+          Scroll
+        </motion.button>
+
+        <motion.div className="stats-group" {...fadeUpOnLoad(INTRO.footer + 0.1)}>
+          {STATS.map((stat) => (
+            <div key={stat.label} className="stat">
+              <span className="stat-value">
+                <CountUp value={stat.value} suffix={stat.suffix} />
+              </span>
+              <span className="stat-label">{stat.label}</span>
+            </div>
           ))}
         </motion.div>
       </footer>
@@ -621,12 +742,11 @@ function ScrollProgress() {
 
 export default function App() {
   useSmoothScroll();
+  const sceneReady = useIdleReady(900);
 
   return (
     <MotionConfig reducedMotion="user">
-      <Suspense fallback={null}>
-        <Scene />
-      </Suspense>
+      <Suspense fallback={null}>{sceneReady && <Scene />}</Suspense>
       <ScrollProgress />
       <Navbar />
       <main className="page">

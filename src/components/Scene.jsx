@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { PerformanceMonitor } from '@react-three/drei';
 import * as THREE from 'three';
 import { atom, browser, cloud, codeSymbol, database, envelope, laptop } from './shapes.js';
 
@@ -15,25 +16,55 @@ const SECTIONS = [
 ];
 const SHAPES = [codeSymbol, laptop, cloud, browser, atom, database, envelope];
 
-function getScrollProgress() {
-  const max = document.documentElement.scrollHeight - window.innerHeight;
-  return max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+// Page geometry is measured only when the layout changes, never inside the render loop:
+// reading layout every frame forces the browser to recalculate it and makes scrolling stutter.
+const layout = { tops: SECTIONS.map(() => 0), maxScroll: 0, vh: 1 };
+
+function measureLayout() {
+  const y = window.scrollY;
+  layout.tops = SECTIONS.map(({ id }) => {
+    const el = document.getElementById(id);
+    return el ? el.getBoundingClientRect().top + y : 0;
+  });
+  layout.vh = window.innerHeight;
+  layout.maxScroll = document.documentElement.scrollHeight - layout.vh;
 }
 
-// Which section sits at the middle of the viewport, and how far through it we are.
-// The morph to the next shape happens over the last part of each section.
+function useLayoutCache() {
+  useEffect(() => {
+    let frame;
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measureLayout);
+    };
+    measureLayout();
+    const observer = new ResizeObserver(schedule);
+    observer.observe(document.body);
+    window.addEventListener('resize', schedule);
+    // Web fonts can change section heights after first paint.
+    document.fonts?.ready.then(schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', schedule);
+    };
+  }, []);
+}
+
+function getScrollProgress() {
+  return layout.maxScroll > 0 ? Math.min(1, Math.max(0, window.scrollY / layout.maxScroll)) : 0;
+}
+
+// The shape change to the next section is driven by that section entering the screen:
+// it starts when its top appears at the bottom of the viewport and completes when the
+// top reaches 40% from the top. Long, gradual, and the hero is at rest on page load.
 function getSectionTarget() {
-  const mid = window.scrollY + window.innerHeight * 0.5;
-  const tops = SECTIONS.map(({ id }) => {
-    const el = document.getElementById(id);
-    return el ? el.getBoundingClientRect().top + window.scrollY : 0;
-  });
+  const { vh, tops } = layout;
+  const y = window.scrollY;
   let i = 0;
-  while (i < SECTIONS.length - 1 && tops[i + 1] <= mid) i++;
+  while (i < SECTIONS.length - 1 && tops[i + 1] <= y + vh * 0.4) i++;
   const last = i === SECTIONS.length - 1;
-  const end = last ? document.documentElement.scrollHeight : tops[i + 1];
-  const frac = THREE.MathUtils.clamp((mid - tops[i]) / Math.max(1, end - tops[i]), 0, 1);
-  const e = last ? 0 : THREE.MathUtils.smootherstep(frac, 0.3, 1);
+  const e = last ? 0 : THREE.MathUtils.smootherstep((y + vh - tops[i + 1]) / (vh * 0.6), 0, 1);
   const a = SECTIONS[i];
   const b = SECTIONS[last ? i : i + 1];
   const lerp = (k) => THREE.MathUtils.lerp(a[k], b[k], e);
@@ -93,11 +124,20 @@ const vertexShader = /* glsl */ `
     gl_Position = projectionMatrix * mv;
     gl_PointSize = uSize * (0.55 + aRandom * 0.9) / -mv.z;
 
-    vec3 violet = vec3(0.54, 0.39, 0.97);
-    vec3 blue = vec3(0.35, 0.55, 1.0);
-    vColor = mix(violet, blue, smoothstep(-1.8, 1.8, p.y + p.x * 0.4));
-    vColor = mix(vColor, vec3(1.0), step(0.965, aRandom) * 0.7);
-    vAlpha = 0.45 + aRandom * 0.55;
+    // Star palette: mostly the background stars' lavender (#b9a6ff),
+    // with some accent violet (#8a63f8) and a few pale blue (#a8c4ff) particles.
+    float pick = fract(aRandom * 7.13);
+    vec3 lavender = vec3(0.725, 0.651, 1.0);
+    vec3 violet = vec3(0.541, 0.388, 0.973);
+    vec3 paleBlue = vec3(0.659, 0.769, 1.0);
+    vColor = pick < 0.68 ? lavender : (pick < 0.9 ? violet : paleBlue);
+    vColor *= 0.85 + aRandom * 0.2;
+
+    // Gentle twinkle, each particle on its own phase.
+    float twinkle = 0.75 + 0.25 * sin(uTime * (1.2 + aRandom * 1.5) + aRandom * 60.0);
+    // Particles on the far side of the shape are dimmer, which reads as depth.
+    float nearness = smoothstep(9.5, 5.5, -mv.z);
+    vAlpha = (0.45 + aRandom * 0.35) * twinkle * (0.45 + 0.55 * nearness);
   }
 `;
 
@@ -108,8 +148,8 @@ const fragmentShader = /* glsl */ `
 
   void main() {
     float d = length(gl_PointCoord - 0.5);
-    float glow = smoothstep(0.5, 0.0, d);
-    glow = pow(glow, 1.6);
+    // Crisp round dot with a small soft edge, like the stars.
+    float glow = smoothstep(0.5, 0.15, d);
     gl_FragColor = vec4(vColor, glow * vAlpha * uOpacity);
   }
 `;
@@ -141,7 +181,7 @@ function ParticleMorph({ pointer }) {
     () => ({
       uTime: { value: 0 },
       uMorph: { value: 0 },
-      uSize: { value: 52 * Math.min(gl.getPixelRatio(), 1.75) },
+      uSize: { value: 40 * Math.min(gl.getPixelRatio(), 1.5) },
       uOpacity: { value: 1 },
     }),
     [gl]
@@ -168,6 +208,8 @@ function ParticleMorph({ pointer }) {
     g.rotation.x = THREE.MathUtils.damp(g.rotation.x, pointer.current.y * 0.3, 1.5, delta);
 
     u.uTime.value = state.clock.elapsedTime;
+    // Point size is in device pixels, so follow the adaptive resolution.
+    u.uSize.value = 40 * state.viewport.dpr;
     u.uMorph.value = morph;
     u.uOpacity.value = THREE.MathUtils.damp(u.uOpacity.value, target.o * (narrow ? 0.5 : 1), 1.2, delta);
   });
@@ -182,7 +224,7 @@ function ParticleMorph({ pointer }) {
           uniforms={uniforms}
           transparent
           depthWrite={false}
-          blending={THREE.AdditiveBlending}
+          blending={THREE.NormalBlending}
         />
       </points>
     </group>
@@ -229,19 +271,27 @@ function CameraRig({ pointer }) {
 export default function Scene() {
   // The canvas sits behind the page (pointer-events: none), so track the mouse on window.
   const pointer = useRef({ x: 0, y: 0 });
+  // Drop the resolution if the device cannot keep up, and restore it when it can.
+  const [dpr, setDpr] = useState(1.5);
+  useLayoutCache();
 
   useEffect(() => {
     const onMove = (e) => {
       pointer.current.x = (e.clientX / window.innerWidth) * 2 - 1;
       pointer.current.y = -((e.clientY / window.innerHeight) * 2 - 1);
     };
-    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointermove', onMove, { passive: true });
     return () => window.removeEventListener('pointermove', onMove);
   }, []);
 
   return (
     <div className="scene-container" aria-hidden="true">
-      <Canvas camera={{ position: [0, 0, 7], fov: 45 }} dpr={[1, 1.75]} gl={{ antialias: false, alpha: true }}>
+      <Canvas
+        camera={{ position: [0, 0, 7], fov: 45 }}
+        dpr={dpr}
+        gl={{ antialias: false, alpha: true, powerPreference: 'high-performance', stencil: false, depth: false }}
+      >
+        <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(1.5)} flipflops={3} onFallback={() => setDpr(1)} />
         <StarField />
         <ParticleMorph pointer={pointer} />
         <CameraRig pointer={pointer} />
