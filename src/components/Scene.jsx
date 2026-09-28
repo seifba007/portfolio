@@ -6,7 +6,8 @@ import { atom, browser, cloud, codeSymbol, database, envelope, laptop } from './
 
 // One developer icon per page section; the particles morph as each section scrolls in.
 const SECTIONS = [
-  { id: 'home', x: 2.5, y: 0.1, s: 1.0, o: 1 },
+  // Hidden in the hero, where the desk video is the visual; it fades in with About.
+  { id: 'home', x: 2.5, y: 0.1, s: 1.0, o: 0 },
   { id: 'about', x: 2.6, y: -0.1, s: 0.95, o: 0.55 },
   { id: 'education', x: 2.7, y: 0.0, s: 0.95, o: 0.5 },
   { id: 'projects', x: -2.5, y: 0.1, s: 0.9, o: 0.45 },
@@ -157,6 +158,7 @@ const fragmentShader = /* glsl */ `
 function ParticleMorph({ pointer }) {
   const group = useRef();
   const material = useRef();
+  const points = useRef();
   const spin = useRef(0);
   const sway = useRef(0);
   const { viewport, gl } = useThree();
@@ -195,14 +197,14 @@ function ParticleMorph({ pointer }) {
     const g = group.current;
     const u = material.current.uniforms;
 
-    g.position.x = THREE.MathUtils.damp(g.position.x, target.x * spread, 1.3, delta);
-    g.position.y = THREE.MathUtils.damp(g.position.y, target.y, 1.3, delta);
-    g.position.z = THREE.MathUtils.damp(g.position.z, -target.travel * 1.6, 1.3, delta);
-    g.scale.setScalar(THREE.MathUtils.damp(g.scale.x, target.s * (narrow ? 0.85 : 1), 1.3, delta));
-    const morph = THREE.MathUtils.damp(u.uMorph.value, target.m, 1.6, delta);
+    g.position.x = THREE.MathUtils.damp(g.position.x, target.x * spread, 2.4, delta);
+    g.position.y = THREE.MathUtils.damp(g.position.y, target.y, 2.4, delta);
+    g.position.z = THREE.MathUtils.damp(g.position.z, -target.travel * 1.6, 2.4, delta);
+    g.scale.setScalar(THREE.MathUtils.damp(g.scale.x, target.s * (narrow ? 0.85 : 1), 2.4, delta));
+    const morph = THREE.MathUtils.damp(u.uMorph.value, target.m, 2.6, delta);
     // One full turn per shape change, landing front-facing; it trails the morph slightly
     // so the spin eases in and out. A slow sway and the mouse add life at rest.
-    spin.current = THREE.MathUtils.damp(spin.current, morph * Math.PI * 2, 1.2, delta);
+    spin.current = THREE.MathUtils.damp(spin.current, morph * Math.PI * 2, 2.2, delta);
     sway.current = THREE.MathUtils.damp(sway.current, pointer.current.x * 0.25, 1.5, delta);
     g.rotation.y = spin.current + Math.sin(state.clock.elapsedTime * 0.3) * 0.2 + sway.current;
     g.rotation.x = THREE.MathUtils.damp(g.rotation.x, pointer.current.y * 0.3, 1.5, delta);
@@ -211,12 +213,14 @@ function ParticleMorph({ pointer }) {
     // Point size is in device pixels, so follow the adaptive resolution.
     u.uSize.value = 40 * state.viewport.dpr;
     u.uMorph.value = morph;
-    u.uOpacity.value = THREE.MathUtils.damp(u.uOpacity.value, target.o * (narrow ? 0.5 : 1), 1.2, delta);
+    u.uOpacity.value = THREE.MathUtils.damp(u.uOpacity.value, target.o * (narrow ? 0.5 : 1), 2.2, delta);
+    // Skip drawing entirely while invisible (behind the hero video).
+    points.current.visible = u.uOpacity.value > 0.005;
   });
 
   return (
     <group ref={group}>
-      <points geometry={geometry} frustumCulled={false}>
+      <points ref={points} geometry={geometry} frustumCulled={false}>
         <shaderMaterial
           ref={material}
           vertexShader={vertexShader}
@@ -248,7 +252,7 @@ function StarField({ count = 1800 }) {
 
   useFrame((_, delta) => {
     const p = getScrollProgress();
-    ref.current.position.y = THREE.MathUtils.damp(ref.current.position.y, p * 10, 1.2, delta);
+    ref.current.position.y = THREE.MathUtils.damp(ref.current.position.y, p * 10, 2.4, delta);
   });
 
   return (

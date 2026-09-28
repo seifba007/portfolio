@@ -213,9 +213,6 @@ export function Kicker({ index, label, center = false }) {
 
 /* ---------- Scroll-linked motion ---------- */
 
-// Soft spring between scroll position and card motion: cards glide rather than track rigidly.
-const SMOOTH = { stiffness: 60, damping: 20, mass: 0.6 };
-
 /**
  * Card that keeps moving with the scroll, in both directions: it rises with parallax,
  * tilts back into place from depth, scales up and fades in as it enters, then
@@ -225,8 +222,9 @@ const SMOOTH = { stiffness: 60, damping: 20, mass: 0.6 };
 export function ScrollCard({ children, className, depth = 60, tilt = 12, x = 0 }) {
   const ref = useRef(null);
   const reduce = useReducedMotion();
-  const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
-  const p = useSpring(scrollYProgress, SMOOTH);
+  // Tied straight to scroll: smooth scrolling already eases it, and a second spring
+  // on top made cards trail behind the page.
+  const { scrollYProgress: p } = useScroll({ target: ref, offset: ['start end', 'end start'] });
 
   const y = useTransform(p, [0, 1], [depth, -depth]);
   const translateX = useTransform(p, [0, 0.35], [x, 0]);
